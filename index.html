@@ -87,7 +87,7 @@ const keys={};
 window.addEventListener('keydown',e=>{keys[e.code]=1;audioInit();if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space','Tab'].includes(e.code))e.preventDefault();if(!e.repeat)onKey(e.code);});
 window.addEventListener('keyup',e=>{keys[e.code]=0;});
 const touches={}; // id -> btn id
-const held={left:0,right:0,jump:0,down:0,jump2:0};
+const held={left:0,right:0,jump:0,down:0,jump2:0,jumpA:0};
 const UI={btns:[],hud:[]};
 function layoutUI(){
   const pad=14,br=PORTRAIT?30:28,dr=PORTRAIT?66:60;
@@ -95,7 +95,7 @@ function layoutUI(){
   UI.btns=[];
   const cx=W-pad-br*2.7,cy=H-pad-br*2.7,g=br*1.6;
   // controller layout: Y top, X left, B right, A bottom
-  UI.btns.push({id:'zap',x:cx,y:cy-g,r:br,lbl:'Y'},{id:'fire',x:cx-g,y:cy,r:br,lbl:'X'},{id:'frost',x:cx+g,y:cy,r:br,lbl:'B'},{id:'heal',x:cx,y:cy+g,r:br,lbl:'A'});
+  UI.btns.push({id:'zap',x:cx,y:cy-g,r:br,lbl:'Y'},{id:'fire',x:cx-g,y:cy,r:br,lbl:'X'},{id:'frost',x:cx+g,y:cy,r:br,lbl:'B'},{id:'jump',x:cx,y:cy+g,r:br*1.1,lbl:'A',hold:true},{id:'heal',x:cx-g*1.35,y:cy-g*1.35,r:br*0.85,lbl:'LB'});
   UI.hud=[{id:'bag',x:W-pad-24,y:pad+24,r:22,txt:'BAG'},{id:'skill',x:W-pad-24-54,y:pad+24,r:22,txt:'SKL'},{id:'pause',x:W-pad-24-108,y:pad+24,r:22,txt:'II'}];
 }
 function tPos(t){const r=canvas.getBoundingClientRect();return{x:t.clientX-r.left,y:t.clientY-r.top};}
@@ -107,21 +107,22 @@ function pressStart(id,x,y){
   if(G.screen!=='play'){uiTap(x,y);return 'ui';}
   if(G.dialog){G.dialog=null;}
   const b=btnAt(x,y);
-  if(b){if(b.id==='bag'||b.id==='skill')openScreen(b.id);else if(b.id==='pause')openScreen('pause');else castSpell(b.id);return 'ui';}
+  if(b){if(b.hold){held.jumpA=1;return 'jumpA';}if(b.id==='bag'||b.id==='skill')openScreen(b.id);else if(b.id==='pause')openScreen('pause');else castSpell(b.id);return 'ui';}
   if(dist(x,y,UI.dpad.x,UI.dpad.y)<UI.dpad.r*1.5&&x<W*0.5){dpadSet(x,y);return 'dpad';}
   if(x>W*0.5){held.jump2=1;return 'jump2';} // tap right side (off buttons) = jump
   return null;}
 canvas.addEventListener('touchstart',e=>{e.preventDefault();audioInit();for(const t of e.changedTouches){const p=tPos(t);touches[t.identifier]=pressStart(t.identifier,p.x,p.y);}},{passive:false});
 canvas.addEventListener('touchmove',e=>{e.preventDefault();for(const t of e.changedTouches){if(touches[t.identifier]==='dpad'){const p=tPos(t);dpadSet(p.x,p.y);}}},{passive:false});
-function endTouch(e){e.preventDefault();for(const t of e.changedTouches){const r=touches[t.identifier];if(r==='dpad'){held.left=held.right=held.jump=held.down=0;}if(r==='jump2')held.jump2=0;delete touches[t.identifier];}}
+function endTouch(e){e.preventDefault();for(const t of e.changedTouches){const r=touches[t.identifier];if(r==='dpad'){held.left=held.right=held.jump=held.down=0;}if(r==='jump2')held.jump2=0;if(r==='jumpA')held.jumpA=0;delete touches[t.identifier];}}
 canvas.addEventListener('touchend',endTouch,{passive:false});canvas.addEventListener('touchcancel',endTouch,{passive:false});
 let mouseBtn=null;
 canvas.addEventListener('mousedown',e=>{audioInit();const p=tPos(e);mouseBtn=pressStart('m',p.x,p.y);});
 canvas.addEventListener('mousemove',e=>{if(mouseBtn==='dpad'){const p=tPos(e);dpadSet(p.x,p.y);}});
-window.addEventListener('mouseup',()=>{if(mouseBtn==='dpad')held.left=held.right=held.jump=held.down=0;if(mouseBtn==='jump2')held.jump2=0;mouseBtn=null;});
+window.addEventListener('mouseup',()=>{if(mouseBtn==='dpad')held.left=held.right=held.jump=held.down=0;if(mouseBtn==='jump2')held.jump2=0;if(mouseBtn==='jumpA')held.jumpA=0;mouseBtn=null;});
 // physical gamepad: A jump · X fire · B frost · Y zap · LB heal · RB health potion · LT mana potion · Start pause · Select bag
 let gpOK=typeof navigator!=='undefined'&&!!navigator.getGamepads;const gpPrev={};let gpSeen=false;
 window.addEventListener('gamepadconnected',e=>{gpSeen=true;if(typeof toast==='function')toast('Controller connected: A jump · X fire · B frost · Y zap · LB heal',C.gold);});
+let gpState=null;
 function pollGamepad(){
   if(!gpOK)return null;let gps;try{gps=navigator.getGamepads();}catch(e){gpOK=false;return null;}
   const gp=gps&&(gps[0]||gps[1]||gps[2]||gps[3]);if(!gp)return null;
@@ -132,14 +133,14 @@ function pollGamepad(){
   if(edge('RB',b(5)))usePot('hp');if(edge('LT',b(6)))usePot('mp');if(edge('sel',b(8)))openScreen('bag');if(edge('start',b(9)))openScreen('pause');if(edge('RT',b(7)))openScreen('skill');
   if(edge('A',b(0))&&G.dialog)G.dialog=null;
   let dx=Math.abs(ax)>0.22?ax:0;if(b(14))dx=-1;if(b(15))dx=1;
-  return{dx,jump:b(0)||b(12)};
+  gpState={dx,jump:b(0)||b(12)};return gpState;
 }
 function moveInput(){
   let dx=0,jump=false;
   if(keys.ArrowLeft||keys.KeyA)dx-=1;if(keys.ArrowRight||keys.KeyD)dx+=1;
   if(keys.ArrowUp||keys.KeyW||keys.Space)jump=true;
-  if(held.left)dx-=1;if(held.right)dx+=1;if(held.jump||held.jump2)jump=true;
-  const g=pollGamepad();if(g){dx+=g.dx;if(g.jump)jump=true;}
+  if(held.left)dx-=1;if(held.right)dx+=1;if(held.jump||held.jump2||held.jumpA)jump=true;
+  const g=gpState;if(g){dx+=g.dx;if(g.jump)jump=true;}
   return{dx:clamp(dx,-1,1),jump};
 }
 
@@ -306,7 +307,7 @@ function loadSeq(seq,fromLeft){
   G.camX=P.x;G.camY=L.gy-VH*0.45;L.projs=[];G.dialog=null;
   if(isTown&&!G.cleared[idx-1]&&idx>0){}
   toast(L.def.name+' — '+L.def.sub,isTown?C.gold:C.red);
-  if(seq===0&&!G.tut){say('','Use the pad to run. Up jumps, down drinks a potion. Your bolts aim themselves — spells are yours to cast.');G.tut=1;}
+  if(seq===0&&!G.tut){say('','Pad to run, A to jump, down on the pad drinks a potion. Your bolts aim themselves — spells are yours to cast.');G.tut=1;}
   save();
 }
 function startFade(fn){if(G.fadeTo)return;G.fade=0;G.fadeTo=fn;}
@@ -406,9 +407,9 @@ function update(dt){
   if(inp.dx){P.vx+=inp.dx*acc*dt;P.facing=inp.dx>0?1:-1;}else{P.vx*=P.onG?Math.max(0,1-dt*12):Math.max(0,1-dt*3);}
   P.vx=clamp(P.vx,-st.spd,st.spd);
   if(P.onG){P.coyote=0.12;P.jumps=0;}else P.coyote-=dt;
-  if(inp.jump){if(!P.jHeld){P.jumpBuf=0.12;}P.jHeld=true;}else{P.jHeld=false;if(P.vy<-150)P.vy=-150;}
+  P.jumpT=(P.jumpT||0)+dt;if(inp.jump){if(!P.jHeld){P.jumpBuf=0.12;}P.jHeld=true;}else{P.jHeld=false;if(P.vy<-220&&P.jumpT>0.16)P.vy=-220;}
   P.jumpBuf-=dt;
-  if(P.jumpBuf>0&&(P.coyote>0||P.jumps<st.maxJumps-1)){if(P.coyote<=0)P.jumps++;P.jumps=Math.max(P.jumps,1);P.vy=-st.jump;P.coyote=0;P.jumpBuf=0;sfx('jump');burst(P.x,P.y+P.h/2,'#8a7a70',4,40);}
+  if(P.jumpBuf>0&&(P.coyote>0||P.jumps<st.maxJumps-1)){if(P.coyote<=0)P.jumps++;P.jumps=Math.max(P.jumps,1);P.vy=-st.jump;P.coyote=0;P.jumpBuf=0;P.jumpT=0;sfx('jump');burst(P.x,P.y+P.h/2,'#8a7a70',4,40);}
   P.vy=Math.min(900,P.vy+1500*dt);
   collide(P,L.plats,dt);
   P.anim+=Math.abs(P.vx)*dt*0.06;
@@ -892,22 +893,24 @@ function drawHUD(){
   ctx.fillStyle=C.mana;rr(px-24,pad+30,8,10,3);ctx.fill();txt('x'+P.pots.mp+' (M)',px-13,pad+35,8,C.bone);
   // on-screen controller
   drawDpad();
-  for(const b of UI.btns){const sp=SPELLS[b.id];const cd=P.cds[b.id]/sp.cd,can=P.mana>=sp.cost;
+  for(const b of UI.btns){
+    if(b.hold){ctx.fillStyle='rgba(10,5,8,0.75)';circ(b.x,b.y+2,b.r+2);ctx.fill();ctx.fillStyle=rgrad(b.x-b.r*0.3,b.y-b.r*0.3,1,b.r,held.jumpA?'#ff8c6a':'#c9c0b4',held.jumpA?'#c1121f':'#5a5058');circ(b.x,b.y,b.r-3);ctx.fill();ctx.strokeStyle='rgba(255,255,255,0.25)';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(b.x,b.y,b.r-4,Math.PI*1.1,Math.PI*1.9);ctx.stroke();txt('JUMP',b.x,b.y+1,11,'#0a0508','center');ctx.fillStyle='rgba(10,5,8,0.85)';circ(b.x+b.r*0.72,b.y-b.r*0.72,8);ctx.fill();txt(b.lbl,b.x+b.r*0.72,b.y-b.r*0.72+0.5,9,C.bone,'center');continue;}
+    const sp=SPELLS[b.id];const cd=P.cds[b.id]/sp.cd,can=P.mana>=sp.cost;
     ctx.fillStyle='rgba(10,5,8,0.75)';circ(b.x,b.y+2,b.r+2);ctx.fill();
     ctx.fillStyle=rgrad(b.x-b.r*0.3,b.y-b.r*0.3,1,b.r,shade(sp.c,0.25),shade(sp.c,-0.35));ctx.globalAlpha=can?1:0.35;circ(b.x,b.y,b.r-3);ctx.fill();ctx.globalAlpha=1;
     ctx.strokeStyle='rgba(255,255,255,0.25)';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(b.x,b.y,b.r-4,Math.PI*1.1,Math.PI*1.9);ctx.stroke();
     if(cd>0){ctx.fillStyle='rgba(10,5,8,0.75)';ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.arc(b.x,b.y,b.r-3,-Math.PI/2,-Math.PI/2+TAU*cd);ctx.closePath();ctx.fill();}
-    txt(sp.name,b.x,b.y-2,10,'#0a0508','center');txt(sp.cost+'mp',b.x,b.y+9,7,'rgba(10,5,8,0.8)','center');
-    ctx.fillStyle='rgba(10,5,8,0.85)';circ(b.x+b.r*0.72,b.y-b.r*0.72,8);ctx.fill();txt(b.lbl,b.x+b.r*0.72,b.y-b.r*0.72+0.5,9,C.bone,'center');}
+    txt(sp.name,b.x,b.y-2,b.r>26?10:9,'#0a0508','center');txt(sp.cost+'mp',b.x,b.y+9,7,'rgba(10,5,8,0.8)','center');
+    ctx.fillStyle='rgba(10,5,8,0.85)';circ(b.x+b.r*0.72,b.y-b.r*0.72,8);ctx.fill();txt(b.lbl,b.x+b.r*0.72,b.y-b.r*0.72+0.5,b.lbl.length>1?7:9,C.bone,'center');}
   // boss bar
   const L=G.map;if(L.boss&&!L.boss.dead){const b=L.boss,bw=Math.min(360,W*0.6);bar(W/2-bw/2,H-pad-8,bw,10,b.hp/b.maxHp,C.red);txt(ENEMY[b.t].name,W/2,H-pad-20,11,C.bone,'center');}
   if(G.bossBanner>0){ctx.globalAlpha=Math.min(1,G.bossBanner);otxt(ENEMY[L.def.boss].name,W/2,H*0.32,PORTRAIT?22:30,C.red,'center');ctx.globalAlpha=1;}
   if(G.levelFx>0){ctx.globalAlpha=Math.min(1,G.levelFx);otxt('LEVEL UP',W/2,H*0.4,26,C.gold,'center');ctx.globalAlpha=1;}
   if(G.ageFx>0){ctx.globalAlpha=Math.min(1,G.ageFx/1.5);otxt('You have grown',W/2,H*0.46,24,C.bone,'center');ctx.globalAlpha=1;}
   // toasts
-  let ty=pad+72;for(const t of G.toasts){ctx.globalAlpha=Math.min(1,t.t);ctx.fillStyle='rgba(10,5,8,0.75)';const w=ctx.measureText(t.s).width;ctx.font='700 11px "Trebuchet MS",Verdana,sans-serif';const tw=ctx.measureText(t.s).width+16;rr(pad-6,ty-8,Math.min(W-2*pad,tw),18,5);ctx.fill();txt(t.s,pad+2,ty+1,11,t.c);ty+=22;}ctx.globalAlpha=1;
+  let ty=pad+72+(G.dialog&&PORTRAIT?76:0);for(const t of G.toasts){ctx.globalAlpha=Math.min(1,t.t);ctx.fillStyle='rgba(10,5,8,0.75)';const w=ctx.measureText(t.s).width;ctx.font='700 11px "Trebuchet MS",Verdana,sans-serif';const tw=ctx.measureText(t.s).width+16;rr(pad-6,ty-8,Math.min(W-2*pad,tw),18,5);ctx.fill();txt(t.s,pad+2,ty+1,11,t.c);ty+=22;}ctx.globalAlpha=1;
   // dialog
-  if(G.dialog){const d=G.dialog,bw=Math.min(W-2*pad,520),bx=W/2-bw/2,by=H*0.62-(PORTRAIT?60:0);ctx.fillStyle='rgba(10,5,8,0.9)';rr(bx,by,bw,64,10);ctx.fill();ctx.strokeStyle='#c1121f';ctx.lineWidth=2;rr(bx,by,bw,64,10);ctx.stroke();
+  if(G.dialog){const d=G.dialog,bw=PORTRAIT?W-2*pad:Math.min(W-470,560),bx=W/2-bw/2,by=PORTRAIT?pad+66:pad+58;ctx.fillStyle='rgba(10,5,8,0.9)';rr(bx,by,bw,64,10);ctx.fill();ctx.strokeStyle='#c1121f';ctx.lineWidth=2;rr(bx,by,bw,64,10);ctx.stroke();
     let yy=by+14;if(d.who){txt(d.who,bx+12,yy,10,C.gold);yy+=14;}const lines=wrap(d.line,bw-24,12);for(const l of lines.slice(0,3)){txt(l,bx+12,yy,12,C.bone);yy+=15;}txt('tap to close',bx+bw-12,by+56,8,C.dim,'right');}
   // level name (first seconds)
   if(L.time<3){ctx.globalAlpha=Math.min(1,3-L.time);otxt(L.def.name,W/2,H*0.2,PORTRAIT?24:30,L.kind==='town'?C.gold:C.red,'center');txt(L.def.sub,W/2,H*0.2+24,12,C.bone,'center');ctx.globalAlpha=1;}
@@ -928,7 +931,7 @@ function drawScreens(){
     SCR.items=[];const bw=180;
     if(hasSave()){button(W/2-bw/2,H*0.7,bw,40,'Continue',()=>{load();G.screen='play';loadSeq(G.seq,true);G.fade=0;});button(W/2-bw/2,H*0.7+50,bw,34,'New game',()=>{P=newPlayer();G.seq=0;G.cleared=[];G.keys=[];G.towers=[];G.tut=0;G.screen='play';loadSeq(0,true);});}
     else button(W/2-bw/2,H*0.7,bw,40,'Begin',()=>{P=newPlayer();G.screen='play';loadSeq(0,true);});
-    txt('Keyboard: A/D move · W/Space jump · 1-4 spells · B bag · U skills · H/M potions',W/2,H*0.9,PORTRAIT?9:11,C.dim,'center');txt('Controller: A jump · X fire · B frost · Y zap · LB heal · RB potion · Start pause',W/2,H*0.9+16,PORTRAIT?9:11,C.dim,'center');
+    txt('Keyboard: A/D move · W/Space jump · 1-4 spells · B bag · U skills · H/M potions',W/2,H*0.9,PORTRAIT?9:11,C.dim,'center');txt('Controller: A jump · X fire · B frost · Y zap · LB heal · RB potion · Start pause · press any button to wake it',W/2,H*0.9+16,PORTRAIT?9:11,C.dim,'center');
   }
   else if(G.screen==='bag'){
     const p=panel('Bag',Math.min(W-20,420),Math.min(H-20,PORTRAIT?520:360));const st=stats();
@@ -981,6 +984,7 @@ function onKey(code){
 let last=0;
 function frame(t){
   const dt=Math.min(0.05,(t-last)/1000||0.016);last=t;
+  gpState=null;pollGamepad();
   update(dt);
   ctx.setTransform(DPR,0,0,DPR,0,0);
   if(G.screen==='title'||G.screen==='win'){drawScreens();}
